@@ -10,7 +10,20 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "django-stubs>=6.0.7",
+    "mypy>=2.3.0",
     "pre-commit>=4.6.1",
     "pytest>=9.1.1",
     "ruff>=0.16.0",
 ]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main"]
+python_version = "3.14"
+exclude = ["migrations/"]
+
+[tool.django-stubs]
+django_settings_module = "simplebank.settings"
