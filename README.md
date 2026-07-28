@@ -2,6 +2,31 @@
 Built with Django, [Django Ninja](https://django-ninja.dev/) and Pydantic.
 Package/env management via [uv](https://docs.astral.sh/uv/) v=0.9.7 (Homebrew 2025-10-30)
 
+## Quickstart
+
+Fastest way to run locally — via Docker (recommended)
+
+One script spins up Postgres + the web container, applies migrations, and creates a local superuser:
+
+```bash
+scripts/docker-up.sh
+```
+
+Once it's up:
+- API: http://localhost:8000/api/health
+- Admin: http://localhost:8000/admin/
+
+Reset everything and start fresh (drops the DB data):
+
+```bash
+scripts/docker-up.sh --reset
+```
+
+Stop/tear down:
+
+```bash
+docker compose rm -v
+```
 
 ## Requirements
 
