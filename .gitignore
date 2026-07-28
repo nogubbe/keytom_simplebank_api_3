@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# IntelliJ project files
+.idea
+out
+gen
+
+# Local editor
+.vim
+.DS_Store
