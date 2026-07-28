@@ -7,7 +7,9 @@ requires-python = ">=3.14.0"
 dependencies = [
     "django>=6.0.7",
     "django-ninja>=1.6.2",
+    "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
+    "pydantic-settings>=2.7.0",
 ]
 
 [dependency-groups]
@@ -16,6 +18,7 @@ dev = [
     "mypy>=2.3.0",
     "pre-commit>=4.6.1",
     "pytest>=9.1.1",
+    "pytest-django>=4.12.0",
     "ruff>=0.16.0",
 ]
 
@@ -28,4 +31,8 @@ python_version = "3.14"
 exclude = ["migrations/"]
 
 [tool.django-stubs]
-django_settings_module = "simplebank.settings"
+django_settings_module = "simplebank.settings.environments.local"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "simplebank.settings.environments.local"
+python_files = ["test_*.py"]

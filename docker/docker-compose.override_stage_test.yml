@@ -1,0 +1,10 @@
+services:
+  db:
+    ports:
+      - '5432:5432'
+
+  web:
+    environment:
+      DJANGO_SETTINGS_MODULE: simplebank.settings.environments.prod
+    ports:
+      - '8000:8000'
