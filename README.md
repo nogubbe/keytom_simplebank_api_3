@@ -1,6 +1,6 @@
 # keytom_simplebank_api_3
 
-
+brew install trivy
 uv venv
 uv run pre-commit install
 source .venv/bin/activate
