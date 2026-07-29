@@ -41,7 +41,7 @@ scripts/docker-up-dev.sh --down
 
 - Python >= 3.14
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- [trivy](https://trivy.dev/) (for the local pre-commit vulnerability scan). use `brew install trivy` for macos, or see docs 
+- [trivy](https://trivy.dev/) (for the local pre-commit vulnerability scan). use `brew install trivy` for macos, or see docs
 
 ## Setup
 
@@ -137,7 +137,4 @@ See `docker/` and `.github/workflows/` for how other environments are wired up.
 
 ## Security scanning
 
-Dependency/filesystem vulnerabilities are scanned with [Trivy](https://trivy.dev/):
-
-- Locally via the `trivy-fs` pre-commit hook.
-- In CI via `.github/workflows/trivy.yml` on every push/PR to `main`.
+ Dependency/filesystem vulnerabilities are scanned with [Trivy](https://trivy.dev/) locally via the `trivy-fs` pre-commit hook.
