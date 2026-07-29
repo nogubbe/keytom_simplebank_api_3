@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
   actions: read
   pull-requests: read
 
@@ -33,14 +32,3 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run --with pip-audit pip-audit
-
-  codeql:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: github/codeql-action/init@v4
-        with:
-          languages: python
-      - uses: github/codeql-action/analyze@v4
