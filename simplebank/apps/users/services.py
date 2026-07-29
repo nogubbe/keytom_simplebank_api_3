@@ -3,6 +3,9 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
+
+from simplebank.apps.accounts.services import create_account_for_user
 
 from .exceptions import EmailAlreadyRegisteredError
 
@@ -19,6 +22,8 @@ def register_user(email: str, password: str) -> User:
     except ValidationError as exc:
         raise ValueError('; '.join(exc.messages)) from exc
 
-    user.set_password(password)
-    user.save()
+    with transaction.atomic():
+        user.set_password(password)
+        user.save()
+        create_account_for_user(user)
     return user
