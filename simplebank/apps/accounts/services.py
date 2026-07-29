@@ -57,9 +57,9 @@ def get_account(user: User) -> Account:
         raise AccountNotFoundError from exc
 
 
-def list_transactions(user: User, date_from: date | None, date_to: date | None) -> QuerySet[Transaction]:
-    """Return the authenticated user's transactions, optionally filtered by date range."""
-    transactions = Transaction.objects.filter(account__user=user).order_by('-timestamp', '-id')
+def list_transactions(account: Account, date_from: date | None, date_to: date | None) -> QuerySet[Transaction]:
+    """Return an account's transactions, optionally filtered by date range."""
+    transactions = Transaction.objects.filter(account=account).order_by('-timestamp', '-id')
     if date_from is not None:
         transactions = transactions.filter(timestamp__gte=_start_of_day(date_from))
     if date_to is not None:

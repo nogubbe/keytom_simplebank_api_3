@@ -50,12 +50,11 @@ def transactions(
     """Return the authenticated user's transaction history, newest first."""
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HttpError(HTTPStatus.UNPROCESSABLE_ENTITY, '`from` date must not be after `to` date')
-    user = _current_user(request)
     try:
-        get_account(user)
+        account = get_account(_current_user(request))
     except AccountNotFoundError as exc:
         raise HttpError(HTTPStatus.NOT_FOUND, 'Account not found') from exc
-    return list_transactions(user, date_from, date_to)
+    return list_transactions(account, date_from, date_to)
 
 
 @router.post(
