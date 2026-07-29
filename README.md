@@ -75,6 +75,13 @@ uv run pytest
 uv run pytest tests/test_smoke.py::test_health_endpoint
 ```
 
+DB-touching tests (`@pytest.mark.django_db`) run against a real, throwaway
+Postgres container spun up automatically by `testcontainers` (see
+`conftest.py`) — not sqlite, and not the `docker-compose` dev stack. This
+keeps DB behaviour (e.g. `select_for_update()` locking) representative of
+production while requiring nothing more than a running Docker daemon; no
+manual `docker-up-dev.sh` step is needed to run the test suite.
+
 ## Linting & type-checking
 
 ```bash
