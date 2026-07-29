@@ -28,7 +28,7 @@ class TransactionOutScheme(Schema):
 class TransferInScheme(Schema):
     """Request body for creating a transfer."""
 
-    account_number: str
+    account_number: str = Field(pattern=r'^\d{10}$')
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
 
 

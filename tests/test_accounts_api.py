@@ -356,6 +356,19 @@ def test_transfer_to_self_returns_422(client, registered_user, auth_headers):
 
 
 @pytest.mark.django_db
+def test_transfer_with_non_numeric_account_number_returns_422(client, registered_user, auth_headers):
+    """An account_number that isn't exactly 10 digits is rejected by schema validation."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': 'abcdefghij', 'amount': '10.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
 def test_transfer_with_non_positive_amount_returns_422(client, registered_user, other_registered_user, auth_headers):
     """A zero or negative amount is rejected by schema validation before any business logic runs."""
     response = client.post(
