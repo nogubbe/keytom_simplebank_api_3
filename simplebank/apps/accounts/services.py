@@ -2,7 +2,7 @@
 
 import secrets
 import string
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
@@ -13,6 +13,8 @@ from .models import Account, Transaction
 
 WELCOME_BONUS = Decimal('10000.00')
 MAX_ACCOUNT_NUMBER_ATTEMPTS = 5
+MIN_TRANSFER_FEE = Decimal('5.00')
+TRANSFER_FEE_RATE = Decimal('0.025')
 
 
 def _generate_account_number() -> str:
@@ -44,3 +46,9 @@ def get_account(user: User) -> Account:
         return Account.objects.get(user=user)
     except Account.DoesNotExist as exc:
         raise AccountNotFoundError from exc
+
+
+def calculate_fee(amount: Decimal) -> Decimal:
+    """Return the greater of 2.5% of the amount or the €5 minimum fee, rounded to 2 decimals."""
+    percentage_fee = (amount * TRANSFER_FEE_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    return max(percentage_fee, MIN_TRANSFER_FEE)
