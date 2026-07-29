@@ -28,6 +28,12 @@ class LoginInScheme(Schema):
     password: str
 
 
+class RefreshInScheme(Schema):
+    """Request body for exchanging a refresh token for a new access token."""
+
+    refresh: str
+
+
 class TokenOutScheme(Schema):
     """Response body containing JWT access/refresh tokens."""
 

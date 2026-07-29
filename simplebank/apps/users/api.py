@@ -7,12 +7,20 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpRequest
 from ninja import Router
+from ninja_jwt.exceptions import TokenError
 from ninja_jwt.tokens import RefreshToken
 
 from simplebank.apps.accounts.exceptions import AccountNumberGenerationError
 
 from .exceptions import EmailAlreadyRegisteredError
-from .schemas import ErrorOutScheme, LoginInScheme, RegisterInScheme, RegisterOutScheme, TokenOutScheme
+from .schemas import (
+    ErrorOutScheme,
+    LoginInScheme,
+    RefreshInScheme,
+    RegisterInScheme,
+    RegisterOutScheme,
+    TokenOutScheme,
+)
 from .services import register_user
 
 router = Router(tags=['auth'])
@@ -49,4 +57,14 @@ def login(request: HttpRequest, payload: LoginInScheme) -> tuple[int, Any]:
     # ninja_jwt.tokens.RefreshToken.for_user is typed as `cls: T` instead of `cls: type[T]`,
     # tripping mypy on a correct call — workaround for that upstream typing bug.
     refresh: RefreshToken = RefreshToken.for_user(user)  # type: ignore[assignment,misc]
+    return HTTPStatus.OK, {'access': str(refresh.access_token), 'refresh': str(refresh)}
+
+
+@router.post('/token/refresh', response={HTTPStatus.OK: TokenOutScheme, HTTPStatus.UNAUTHORIZED: ErrorOutScheme})
+def refresh_token(request: HttpRequest, payload: RefreshInScheme) -> tuple[int, Any]:
+    """Exchange a valid refresh token for a fresh JWT access token."""
+    try:
+        refresh = RefreshToken(payload.refresh)
+    except TokenError:
+        return HTTPStatus.UNAUTHORIZED, {'detail': 'Invalid or expired refresh token'}
     return HTTPStatus.OK, {'access': str(refresh.access_token), 'refresh': str(refresh)}

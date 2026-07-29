@@ -4,6 +4,8 @@ For more information on this file, see
 https://docs.djangoproject.com/en/6.0/topics/settings/
 """
 
+from datetime import timedelta
+
 from .config import get_settings
 
 settings = get_settings()
@@ -95,3 +97,11 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# JWT lifetimes: the 5-minute ninja_jwt default logs clients out mid-session, so access
+# tokens live 30 minutes and refresh tokens 7 days to allow silent renewal.
+NINJA_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+}
