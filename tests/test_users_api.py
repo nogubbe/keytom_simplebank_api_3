@@ -27,6 +27,19 @@ def test_register_returns_503_when_account_number_generation_is_exhausted(client
 
 
 @pytest.mark.django_db
+def test_register_rejects_a_weak_password_with_422(client):
+    """A weak/short password is rejected with 422 and a validator-derived detail message."""
+    response = client.post(
+        '/api/auth/register',
+        {'email': 'weak-http@example.com', 'password': '123'},
+        content_type='application/json',
+    )
+
+    assert response.status_code == 422
+    assert response.json()['detail']
+
+
+@pytest.mark.django_db
 def test_register_rejects_email_longer_than_the_username_column_allows(client):
     """An email longer than auth_user.username's 150-char limit is rejected with 422, not a 500.
 

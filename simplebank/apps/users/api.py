@@ -12,7 +12,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from simplebank.apps.accounts.exceptions import AccountNumberGenerationError
 
-from .exceptions import EmailAlreadyRegisteredError
+from .exceptions import EmailAlreadyRegisteredError, WeakPasswordError
 from .schemas import (
     ErrorOutScheme,
     LoginInScheme,
@@ -41,7 +41,7 @@ def register(request: HttpRequest, payload: RegisterInScheme) -> tuple[HTTPStatu
         user = register_user(payload.email, payload.password)
     except EmailAlreadyRegisteredError:
         return HTTPStatus.CONFLICT, {'detail': 'Email is already registered'}
-    except ValueError as exc:
+    except WeakPasswordError as exc:
         return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': str(exc)}
     except AccountNumberGenerationError:
         return HTTPStatus.SERVICE_UNAVAILABLE, {'detail': 'Could not create an account, please try again'}
