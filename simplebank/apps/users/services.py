@@ -3,7 +3,7 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from simplebank.apps.accounts.services import create_account_for_user
 
@@ -24,6 +24,10 @@ def register_user(email: str, password: str) -> User:
 
     with transaction.atomic():
         user.set_password(password)
-        user.save()
+        try:
+            with transaction.atomic():
+                user.save()
+        except IntegrityError as exc:
+            raise EmailAlreadyRegisteredError(email) from exc
         create_account_for_user(user)
     return user
