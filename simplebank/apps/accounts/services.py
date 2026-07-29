@@ -11,8 +11,14 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from .enums import TransactionType
-from .exceptions import AccountNotFoundError, AccountNumberGenerationError
-from .models import Account, Transaction
+from .exceptions import (
+    AccountNotFoundError,
+    AccountNumberGenerationError,
+    InsufficientFundsError,
+    InvalidTransferAmountError,
+    SameAccountTransferError,
+)
+from .models import Account, Transaction, Transfer
 
 WELCOME_BONUS = Decimal('10000.00')
 MAX_ACCOUNT_NUMBER_ATTEMPTS = 5
@@ -70,3 +76,61 @@ def calculate_fee(amount: Decimal) -> Decimal:
     """Return the greater of 2.5% of the amount or the €5 minimum fee, rounded to 2 decimals."""
     percentage_fee = (amount * TRANSFER_FEE_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     return max(percentage_fee, MIN_TRANSFER_FEE)
+
+
+def execute_transfer(sender: Account, receiver_account_number: str, amount: Decimal) -> Transfer:
+    """Transfer money from sender to the account with receiver_account_number, applying the fee.
+
+    The passed-in `sender` instance is not updated in place — its `.balance` still holds the
+    pre-transfer value after this returns. Re-fetch the account if you need the new balance.
+    """
+    if amount <= 0 or amount != amount.quantize(Decimal('0.01')):
+        raise InvalidTransferAmountError
+    try:
+        receiver = Account.objects.get(account_number=receiver_account_number)
+    except Account.DoesNotExist as exc:
+        raise AccountNotFoundError from exc
+    if receiver.pk == sender.pk:
+        raise SameAccountTransferError
+
+    with transaction.atomic():
+        # Both rows are locked by a single SELECT ... FOR UPDATE ... ORDER BY statement rather than
+        # two separate lock acquisitions. Both concurrent sessions execute the same query plan over
+        # the same two rows, so both traverse them in the same order regardless of which account each
+        # session calls "sender" — that shared traversal order is what rules out a lock-ordering cycle
+        # between opposing transfers (A->B and B->A). The ORDER BY keeps that order aligned with pk
+        # instead of leaving it to whatever the current plan happens to produce.
+        locked = Account.objects.select_for_update().filter(pk__in=[sender.pk, receiver.pk]).order_by('pk')
+        by_pk = {account.pk: account for account in locked}
+        try:
+            locked_sender, locked_receiver = by_pk[sender.pk], by_pk[receiver.pk]
+        except KeyError as exc:
+            raise AccountNotFoundError from exc
+        fee = calculate_fee(amount)
+        total_debit = amount + fee
+        if locked_sender.balance < total_debit:
+            raise InsufficientFundsError
+
+        transfer = Transfer.objects.create(
+            sender_account=locked_sender,
+            receiver_account=locked_receiver,
+            amount=amount,
+            fee=fee,
+        )
+        Transaction.objects.create(
+            account=locked_sender,
+            type=TransactionType.DEBIT,
+            amount=total_debit,
+            transfer=transfer,
+        )
+        Transaction.objects.create(
+            account=locked_receiver,
+            type=TransactionType.CREDIT,
+            amount=amount,
+            transfer=transfer,
+        )
+        locked_sender.balance -= total_debit
+        locked_receiver.balance += amount
+        locked_sender.save(update_fields=['balance', 'updated_at'])
+        locked_receiver.save(update_fields=['balance', 'updated_at'])
+        return transfer
