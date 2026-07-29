@@ -137,7 +137,4 @@ See `docker/` and `.github/workflows/` for how other environments are wired up.
 
 ## Security scanning
 
-Dependency/filesystem vulnerabilities are scanned with [Trivy](https://trivy.dev/):
-
-- Locally via the `trivy-fs` pre-commit hook.
-- In CI via `.github/workflows/trivy.yml` on every push/PR to `main`.
+ Dependency/filesystem vulnerabilities are scanned with [Trivy](https://trivy.dev/) locally via the `trivy-fs` pre-commit hook.
