@@ -6,6 +6,8 @@ from decimal import Decimal
 from ninja import Schema
 from pydantic import Field
 
+from .enums import TransactionType
+
 
 class BalanceOutScheme(Schema):
     """Response body for the current balance."""
@@ -18,7 +20,7 @@ class TransactionOutScheme(Schema):
     """Response body for a single transaction history entry."""
 
     id: int
-    type: str
+    type: TransactionType
     amount: Decimal
     timestamp: datetime
 

@@ -2,10 +2,13 @@
 
 import secrets
 import string
+from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
+from django.utils import timezone
 
 from .enums import TransactionType
 from .exceptions import AccountNotFoundError, AccountNumberGenerationError
@@ -46,6 +49,21 @@ def get_account(user: User) -> Account:
         return Account.objects.get(user=user)
     except Account.DoesNotExist as exc:
         raise AccountNotFoundError from exc
+
+
+def list_transactions(user: User, date_from: date | None, date_to: date | None) -> QuerySet[Transaction]:
+    """Return the authenticated user's transactions, optionally filtered by date range."""
+    transactions = Transaction.objects.filter(account__user=user).order_by('-timestamp', '-id')
+    if date_from is not None:
+        transactions = transactions.filter(timestamp__gte=_start_of_day(date_from))
+    if date_to is not None:
+        transactions = transactions.filter(timestamp__lt=_start_of_day(date_to + timedelta(days=1)))
+    return transactions
+
+
+def _start_of_day(day: date) -> datetime:
+    """Return the given date's midnight as a timezone-aware datetime."""
+    return timezone.make_aware(datetime.combine(day, time.min))
 
 
 def calculate_fee(amount: Decimal) -> Decimal:
