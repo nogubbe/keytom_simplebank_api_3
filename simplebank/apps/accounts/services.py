@@ -17,6 +17,7 @@ from .exceptions import (
     InsufficientFundsError,
     InvalidTransferAmountError,
     SameAccountTransferError,
+    SenderAccountNotFoundError,
 )
 from .models import Account, Transaction, Transfer
 
@@ -78,6 +79,23 @@ def calculate_fee(amount: Decimal) -> Decimal:
     return max(percentage_fee, MIN_TRANSFER_FEE)
 
 
+# Both rows are locked by a single SELECT ... FOR UPDATE ... ORDER BY statement rather than
+# two separate lock acquisitions. Both concurrent sessions execute the same query plan over
+# the same two rows, so both traverse them in the same order regardless of which account each
+# session calls "sender" — that shared traversal order is what rules out a lock-ordering cycle
+# between opposing transfers (A->B and B->A). The ORDER BY keeps that order aligned with pk
+# instead of leaving it to whatever the current plan happens to produce.
+def _lock_transfer_accounts(sender_pk: int, receiver_pk: int) -> tuple[Account, Account]:
+    """Lock and return the sender and receiver accounts in a deadlock-safe pk order."""
+    locked = Account.objects.select_for_update().filter(pk__in=[sender_pk, receiver_pk]).order_by('pk')
+    by_pk = {account.pk: account for account in locked}
+    if sender_pk not in by_pk:
+        raise SenderAccountNotFoundError
+    if receiver_pk not in by_pk:
+        raise AccountNotFoundError
+    return by_pk[sender_pk], by_pk[receiver_pk]
+
+
 def execute_transfer(sender: Account, receiver_account_number: str, amount: Decimal) -> Transfer:
     """Transfer money from sender to the account with receiver_account_number, applying the fee.
 
@@ -94,18 +112,7 @@ def execute_transfer(sender: Account, receiver_account_number: str, amount: Deci
         raise SameAccountTransferError
 
     with transaction.atomic():
-        # Both rows are locked by a single SELECT ... FOR UPDATE ... ORDER BY statement rather than
-        # two separate lock acquisitions. Both concurrent sessions execute the same query plan over
-        # the same two rows, so both traverse them in the same order regardless of which account each
-        # session calls "sender" — that shared traversal order is what rules out a lock-ordering cycle
-        # between opposing transfers (A->B and B->A). The ORDER BY keeps that order aligned with pk
-        # instead of leaving it to whatever the current plan happens to produce.
-        locked = Account.objects.select_for_update().filter(pk__in=[sender.pk, receiver.pk]).order_by('pk')
-        by_pk = {account.pk: account for account in locked}
-        try:
-            locked_sender, locked_receiver = by_pk[sender.pk], by_pk[receiver.pk]
-        except KeyError as exc:
-            raise AccountNotFoundError from exc
+        locked_sender, locked_receiver = _lock_transfer_accounts(sender.pk, receiver.pk)
         fee = calculate_fee(amount)
         total_debit = amount + fee
         if locked_sender.balance < total_debit:

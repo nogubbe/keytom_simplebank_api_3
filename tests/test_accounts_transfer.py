@@ -15,6 +15,7 @@ from simplebank.apps.accounts.exceptions import (
     InsufficientFundsError,
     InvalidTransferAmountError,
     SameAccountTransferError,
+    SenderAccountNotFoundError,
 )
 from simplebank.apps.accounts.models import Account, Transaction, Transfer
 from simplebank.apps.accounts.services import execute_transfer
@@ -118,6 +119,19 @@ def test_execute_transfer_rejects_unknown_receiver_account_number(sender):
     """An account number that does not exist is rejected."""
     with pytest.raises(AccountNotFoundError):
         execute_transfer(sender, '9999999999', Decimal('100.00'))
+
+
+@pytest.mark.django_db
+def test_execute_transfer_raises_sender_not_found_when_sender_row_is_gone(receiver):
+    """If the sender's own account row no longer exists, the sender-specific error is raised."""
+    deleted_user = User.objects.create_user(username='ghost@example.com', email='ghost@example.com')
+    ghost_sender = Account.objects.create(user=deleted_user, account_number='1000000099', balance=Decimal('1000.00'))
+    ghost_sender_pk = ghost_sender.pk
+    Account.objects.filter(pk=ghost_sender_pk).delete()
+    ghost_sender.pk = ghost_sender_pk
+
+    with pytest.raises(SenderAccountNotFoundError):
+        execute_transfer(ghost_sender, receiver.account_number, Decimal('10.00'))
 
 
 @pytest.mark.django_db
