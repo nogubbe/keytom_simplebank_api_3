@@ -81,6 +81,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
+# All timestamps (transaction history, date-range filters) are stored and interpreted in UTC.
 TIME_ZONE = 'UTC'
 
 USE_I18N = True
