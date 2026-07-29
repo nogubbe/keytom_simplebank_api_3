@@ -9,6 +9,8 @@ from django.http import HttpRequest
 from ninja import Router
 from ninja_jwt.tokens import RefreshToken
 
+from simplebank.apps.accounts.exceptions import AccountNumberGenerationError
+
 from .exceptions import EmailAlreadyRegisteredError
 from .schemas import ErrorOutScheme, LoginInScheme, RegisterInScheme, RegisterOutScheme, TokenOutScheme
 from .services import register_user
@@ -22,6 +24,7 @@ router = Router(tags=['auth'])
         HTTPStatus.CREATED: RegisterOutScheme,
         HTTPStatus.CONFLICT: ErrorOutScheme,
         HTTPStatus.UNPROCESSABLE_ENTITY: ErrorOutScheme,
+        HTTPStatus.SERVICE_UNAVAILABLE: ErrorOutScheme,
     },
 )
 def register(request: HttpRequest, payload: RegisterInScheme) -> tuple[HTTPStatus, dict[str, str] | User]:
@@ -32,6 +35,8 @@ def register(request: HttpRequest, payload: RegisterInScheme) -> tuple[HTTPStatu
         return HTTPStatus.CONFLICT, {'detail': 'Email is already registered'}
     except ValueError as exc:
         return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': str(exc)}
+    except AccountNumberGenerationError:
+        return HTTPStatus.SERVICE_UNAVAILABLE, {'detail': 'Could not create an account, please try again'}
     return HTTPStatus.CREATED, user
 
 
