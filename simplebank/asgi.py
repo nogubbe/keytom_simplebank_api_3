@@ -1,5 +1,4 @@
-"""
-ASGI config for simplebank project.
+"""ASGI config for simplebank project.
 
 It exposes the ASGI callable as a module-level variable named ``application``.
 

@@ -4,6 +4,7 @@ from .config import get_settings
 
 
 def get_databases() -> dict:
+    """Build Django's DATABASES dict from the configured DATABASE_URL."""
     url = get_settings().database_url
     host_info = url.hosts()[0]
     return {

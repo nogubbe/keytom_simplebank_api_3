@@ -22,6 +22,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'ninja',
+    'ninja_jwt',
+    'simplebank.apps.users',
 ]
 
 MIDDLEWARE = [

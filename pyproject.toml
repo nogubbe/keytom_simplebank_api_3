@@ -7,6 +7,8 @@ requires-python = ">=3.14.0"
 dependencies = [
     "django>=6.0.7",
     "django-ninja>=1.6.2",
+    "django-ninja-jwt>=5.4.5",
+    "email-validator>=2.3.0",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.7.0",
@@ -23,16 +25,108 @@ dev = [
     "testcontainers[postgres]>=4.15.0",
 ]
 
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
 [tool.ruff.format]
 quote-style = "single"
 
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # flake8-bugbear
+    "A",         # flake8-builtins
+    "C4",        # flake8-comprehensions
+    "DJ",        # flake8-django
+    "PIE",       # flake8-pie
+    "T20",       # flake8-print
+    "PT",        # flake8-pytest-style
+    "RSE",       # flake8-raise
+    "RET",       # flake8-return
+    "SIM",       # flake8-simplify
+    "ARG",       # flake8-unused-arguments
+    "PTH",       # flake8-use-pathlib
+    "ERA",       # eradicate (commented-out code)
+    "PL",        # Pylint
+    "TRY",       # tryceratops
+    "PERF",      # Perflint
+    "FURB",      # refurb
+    "RUF",       # Ruff-specific rules
+    "S",         # flake8-bandit
+    "ISC",       # flake8-implicit-str-concat
+    "TID",       # flake8-tidy-imports
+    "C90",       # mccabe complexity
+    "D",         # pydocstyle
+]
+ignore = [
+    "COM812",    # trailing comma - conflicts with formatter
+    "ISC001",    # implicit string concat - conflicts with formatter
+    "D203",      # blank line before class docstring - conflicts with D211
+    "D213",      # multi-line summary on second line - conflicts with D212
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 6
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 12
+max-statements = 30
+max-returns = 6
+
+[tool.ruff.lint.per-file-ignores]
+"*/migrations/*.py" = ["ALL"]
+"manage.py" = ["ALL"]
+"main.py" = ["T201"]
+"tests/*" = ["S101", "PLR2004", "ARG001"]
+"conftest.py" = ["PLC0415"]
+"simplebank/apps/*/admin.py" = ["RUF012"]
+"simplebank/apps/*/api.py" = ["ARG001"]
+"simplebank/urls.py" = ["ARG001"]
+"simplebank/settings/**" = ["S105"]
+"simplebank/settings/environments/*.py" = ["F403", "F405", "TID252"]
+
 [tool.mypy]
-plugins = ["mypy_django_plugin.main"]
 python_version = "3.14"
-exclude = ["migrations/"]
+plugins = ["mypy_django_plugin.main", "pydantic.mypy"]
+warn_return_any = true
+warn_unused_configs = true
+disallow_subclassing_any = false
+disallow_any_generics = false
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = true
+strict_optional = true
+strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "simplebank.apps.*.migrations.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
 
 [tool.django-stubs]
 django_settings_module = "simplebank.settings.environments.local"
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "simplebank.settings.environments.local"
