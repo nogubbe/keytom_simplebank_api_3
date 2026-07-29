@@ -22,4 +22,4 @@ class SameAccountTransferError(Exception):
 
 
 class InvalidTransferAmountError(Exception):
-    """Raised when a transfer amount is zero, negative, or has more than 2 decimal places."""
+    """Raised when a transfer amount is zero, negative, too large, or has more than 2 decimal places."""

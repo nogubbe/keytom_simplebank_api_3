@@ -25,6 +25,8 @@ WELCOME_BONUS = Decimal('10000.00')
 MAX_ACCOUNT_NUMBER_ATTEMPTS = 5
 MIN_TRANSFER_FEE = Decimal('5.00')
 TRANSFER_FEE_RATE = Decimal('0.025')
+# Matches Account.balance / Transfer.amount's max_digits=12, decimal_places=2.
+MAX_TRANSFER_AMOUNT = Decimal('9999999999.99')
 
 
 def _generate_account_number() -> str:
@@ -102,7 +104,7 @@ def execute_transfer(sender: Account, receiver_account_number: str, amount: Deci
     The passed-in `sender` instance is not updated in place — its `.balance` still holds the
     pre-transfer value after this returns. Re-fetch the account if you need the new balance.
     """
-    if amount <= 0 or amount != amount.quantize(Decimal('0.01')):
+    if amount <= 0 or amount > MAX_TRANSFER_AMOUNT or amount != amount.quantize(Decimal('0.01')):
         raise InvalidTransferAmountError
     try:
         receiver = Account.objects.get(account_number=receiver_account_number)

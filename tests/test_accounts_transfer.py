@@ -18,7 +18,7 @@ from simplebank.apps.accounts.exceptions import (
     SenderAccountNotFoundError,
 )
 from simplebank.apps.accounts.models import Account, Transaction, Transfer
-from simplebank.apps.accounts.services import execute_transfer
+from simplebank.apps.accounts.services import MAX_TRANSFER_AMOUNT, execute_transfer
 
 
 def make_account(username: str, account_number: str, balance: str) -> Account:
@@ -151,6 +151,18 @@ def test_execute_transfer_rejects_zero_amount(sender, receiver):
     """A zero amount is rejected."""
     with pytest.raises(InvalidTransferAmountError):
         execute_transfer(sender, receiver.account_number, Decimal('0.00'))
+
+
+@pytest.mark.django_db
+def test_execute_transfer_rejects_amount_over_the_max_digits_the_model_can_store(sender, receiver):
+    """An amount larger than max_digits=12 can represent is rejected instead of hitting a DB error."""
+    with pytest.raises(InvalidTransferAmountError):
+        execute_transfer(sender, receiver.account_number, MAX_TRANSFER_AMOUNT + Decimal('0.01'))
+
+    sender.refresh_from_db()
+    receiver.refresh_from_db()
+    assert sender.balance == Decimal('1000.00')
+    assert receiver.balance == Decimal('0.00')
 
 
 @pytest.mark.django_db
