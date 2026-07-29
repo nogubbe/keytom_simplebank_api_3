@@ -10,11 +10,13 @@ from django.http import HttpRequest
 from django.urls import path
 from ninja import NinjaAPI
 
+from simplebank.apps.accounts.api import router as accounts_router
 from simplebank.apps.users.api import router as users_router
 
 api = NinjaAPI(title='SimpleBank API', docs_url='/docs' if settings.DEBUG else None)
 
 api.add_router('/auth', users_router)
+api.add_router('/accounts', accounts_router)
 
 
 @api.get('/health')
