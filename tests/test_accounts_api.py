@@ -1,11 +1,15 @@
 """Tests for the accounts app's HTTP API."""
 
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
+from simplebank.apps.accounts.enums import TransactionType
+from simplebank.apps.accounts.models import Transaction
 from simplebank.apps.users.services import register_user
 
 
@@ -50,3 +54,213 @@ def test_balance_for_user_without_account_returns_404(client):
     response = client.get('/api/accounts/balance', headers=headers)
 
     assert response.status_code == 404
+
+
+def test_transactions_requires_authentication(client):
+    """The transaction history endpoint returns 401 without a token."""
+    response = client.get('/api/accounts/transactions')
+
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_transactions_for_user_without_account_returns_404(client):
+    """A JWT-authenticated user with no Account gets 404, matching the /balance contract."""
+    user = User.objects.create_user(username='no-account-history@example.com', email='no-account-history@example.com')
+    refresh: RefreshToken = RefreshToken.for_user(user)  # type: ignore[assignment,misc]
+    headers = {'Authorization': f'Bearer {refresh.access_token}'}
+
+    response = client.get('/api/accounts/transactions', headers=headers)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_transactions_rejects_inverted_date_range(client, registered_user, auth_headers):
+    """A `from` date after the `to` date is rejected with 422 rather than silently returning nothing."""
+    response = client.get(
+        '/api/accounts/transactions',
+        {'from': '2030-01-01', 'to': '2020-01-01'},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_transactions_rejects_invalid_date(client, registered_user, auth_headers):
+    """An unparseable `from` value is rejected with 422, not a 500."""
+    response = client.get('/api/accounts/transactions', {'from': 'not-a-date'}, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_transactions_returns_welcome_bonus(client, registered_user, auth_headers):
+    """A freshly registered user's history contains only the welcome-bonus credit."""
+    response = client.get('/api/accounts/transactions', headers=auth_headers)
+
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert len(items) == 1
+    assert items[0]['type'] == 'credit'
+    assert Decimal(items[0]['amount']) == Decimal('10000.00')
+
+
+@pytest.mark.django_db
+def test_transactions_serializes_debit_type(client, registered_user, auth_headers):
+    """A debit transaction serializes with type 'debit', pinning the enum-to-JSON contract."""
+    debit = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('1.00'),
+    )
+
+    response = client.get('/api/accounts/transactions', headers=auth_headers)
+
+    items = {item['id']: item for item in response.json()['items']}
+    assert items[debit.pk]['type'] == 'debit'
+
+
+@pytest.mark.django_db
+def test_transactions_from_filter_excludes_older_entries(client, registered_user, auth_headers):
+    """The `from` filter excludes transactions timestamped before the given date, keeps in-range ones."""
+    bonus = registered_user.account.transactions.get()
+    Transaction.objects.filter(pk=bonus.pk).update(timestamp=timezone.now() - timedelta(days=30))
+    recent = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('1.00'),
+    )
+
+    params = {'from': timezone.now().date().isoformat()}
+    response = client.get('/api/accounts/transactions', params, headers=auth_headers)
+
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert len(items) == 1
+    assert items[0]['id'] == recent.pk
+
+
+@pytest.mark.django_db
+def test_transactions_to_filter_excludes_newer_entries(client, registered_user, auth_headers):
+    """The `to` filter excludes transactions timestamped after the given date, keeps in-range ones."""
+    bonus = registered_user.account.transactions.get()
+    future = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('1.00'),
+    )
+    Transaction.objects.filter(pk=future.pk).update(timestamp=timezone.now() + timedelta(days=30))
+
+    params = {'to': timezone.now().date().isoformat()}
+    response = client.get('/api/accounts/transactions', params, headers=auth_headers)
+
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert len(items) == 1
+    assert items[0]['id'] == bonus.pk
+
+
+@pytest.mark.django_db
+def test_transactions_to_filter_includes_entries_late_on_the_to_day(client, registered_user, auth_headers):
+    """The `to` filter is inclusive of the entire day, not just midnight."""
+    bonus = registered_user.account.transactions.get()
+    today = timezone.now().date()
+    late_today = timezone.now().replace(hour=23, minute=59, second=59, microsecond=0)
+    Transaction.objects.filter(pk=bonus.pk).update(timestamp=late_today)
+
+    response = client.get('/api/accounts/transactions', {'to': today.isoformat()}, headers=auth_headers)
+
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert len(items) == 1
+    assert items[0]['id'] == bonus.pk
+
+
+@pytest.mark.django_db
+def test_transactions_from_and_to_filter_together_select_only_the_in_range_entry(
+    client,
+    registered_user,
+    auth_headers,
+):
+    """Combining `from` and `to` returns only the transaction that falls inside both bounds."""
+    bonus = registered_user.account.transactions.get()
+    Transaction.objects.filter(pk=bonus.pk).update(timestamp=timezone.now() - timedelta(days=30))
+    before = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('1.00'),
+    )
+    Transaction.objects.filter(pk=before.pk).update(timestamp=timezone.now() - timedelta(days=5))
+    inside = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('2.00'),
+    )
+    after = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('3.00'),
+    )
+    Transaction.objects.filter(pk=after.pk).update(timestamp=timezone.now() + timedelta(days=5))
+
+    params = {
+        'from': (timezone.now() - timedelta(days=1)).date().isoformat(),
+        'to': (timezone.now() + timedelta(days=1)).date().isoformat(),
+    }
+    response = client.get('/api/accounts/transactions', params, headers=auth_headers)
+
+    items = response.json()['items']
+    assert len(items) == 1
+    assert items[0]['id'] == inside.pk
+
+
+@pytest.mark.django_db
+def test_transactions_are_ordered_newest_first(client, registered_user, auth_headers):
+    """Transactions are returned newest first."""
+    bonus = registered_user.account.transactions.get()
+    newer = Transaction.objects.create(
+        account=registered_user.account,
+        type=TransactionType.DEBIT,
+        amount=Decimal('1.00'),
+    )
+    Transaction.objects.filter(pk=newer.pk).update(timestamp=timezone.now() + timedelta(minutes=1))
+
+    response = client.get('/api/accounts/transactions', headers=auth_headers)
+
+    ids = [item['id'] for item in response.json()['items']]
+    assert ids == [newer.pk, bonus.pk]
+
+
+@pytest.mark.django_db
+def test_transactions_excludes_other_users_transactions(client, registered_user, auth_headers):
+    """A user's transaction history never includes another user's transactions."""
+    other_user = register_user('other-history@example.com', 'a-strong-password-123')
+    Transaction.objects.create(account=other_user.account, type=TransactionType.DEBIT, amount=Decimal('999.00'))
+
+    response = client.get('/api/accounts/transactions', headers=auth_headers)
+
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert len(items) == 1
+    assert items[0]['id'] == registered_user.account.transactions.get().pk
+
+
+@pytest.mark.django_db
+def test_transactions_are_paginated(client, registered_user, auth_headers):
+    """The history endpoint returns one page of items plus the total count."""
+    for _ in range(4):
+        Transaction.objects.create(account=registered_user.account, type=TransactionType.DEBIT, amount=Decimal('1.00'))
+
+    response = client.get('/api/accounts/transactions', {'page': 1, 'page_size': 2}, headers=auth_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body['items']) == 2
+    assert body['count'] == 5
+
+    page_two = client.get('/api/accounts/transactions', {'page': 2, 'page_size': 2}, headers=auth_headers)
+    page_two_items = page_two.json()['items']
+    assert len(page_two_items) == 2
+    assert {item['id'] for item in body['items']}.isdisjoint({item['id'] for item in page_two_items})
