@@ -41,7 +41,7 @@ scripts/docker-up-dev.sh --down
 
 - Python >= 3.14
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- [trivy](https://trivy.dev/) (for the local pre-commit vulnerability scan). use `brew install trivy` for macos, or see docs 
+- [trivy](https://trivy.dev/) (for the local pre-commit vulnerability scan). use `brew install trivy` for macos, or see docs
 
 ## Setup
 

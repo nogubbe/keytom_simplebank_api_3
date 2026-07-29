@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   UV_VERSION: '0.9.7'
 
@@ -24,6 +27,12 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: simplebank.settings.environments.local
+      SECRET_KEY: ci-dummy-secret-key
+      DEBUG: 'True'
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      DATABASE_URL: postgres://simplebank:simplebank@localhost:5432/simplebank
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
