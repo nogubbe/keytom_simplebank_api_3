@@ -35,20 +35,26 @@ def _generate_account_number() -> str:
 
 
 def create_account_for_user(user: User) -> Account:
-    """Create a bank account for a user, crediting the welcome bonus."""
+    """Create a bank account for a user, crediting the welcome bonus in the same transaction."""
+    with transaction.atomic():
+        account = _create_account_with_unique_number(user)
+        Transaction.objects.create(account=account, type=TransactionType.CREDIT, amount=WELCOME_BONUS)
+        return account
+
+
+def _create_account_with_unique_number(user: User) -> Account:
+    """Insert the user's account, retrying on generated account-number collisions."""
     for _ in range(MAX_ACCOUNT_NUMBER_ATTEMPTS):
         try:
+            # Each attempt gets its own savepoint so a collision can be rolled back and retried.
             with transaction.atomic():
-                account = Account.objects.create(
+                return Account.objects.create(
                     user=user,
                     account_number=_generate_account_number(),
                     balance=WELCOME_BONUS,
                 )
         except IntegrityError:
             continue
-        else:
-            Transaction.objects.create(account=account, type=TransactionType.CREDIT, amount=WELCOME_BONUS)
-            return account
     raise AccountNumberGenerationError
 
 

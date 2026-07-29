@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import IntegrityError
 
 from simplebank.apps.accounts.enums import TransactionType
 from simplebank.apps.accounts.models import Account, Transaction
@@ -61,6 +62,36 @@ def test_create_account_for_user_retries_on_account_number_collision():
         account = create_account_for_user(user)
 
     assert account.account_number == '2222222222'
+
+
+@pytest.mark.django_db
+def test_create_account_for_user_rolls_back_account_if_bonus_transaction_fails():
+    """A failure while recording the bonus transaction rolls back the account too."""
+    user = User.objects.create_user(username='j@example.com', email='j@example.com')
+
+    with (
+        patch.object(Transaction.objects, 'create', side_effect=RuntimeError('ledger write failed')) as create_txn,
+        pytest.raises(RuntimeError),
+    ):
+        create_account_for_user(user)
+
+    assert create_txn.called
+    assert not Account.objects.filter(user=user).exists()
+    assert not Transaction.objects.filter(account__user=user).exists()
+
+
+@pytest.mark.django_db
+def test_create_account_for_user_does_not_retry_on_bonus_transaction_integrity_error():
+    """An IntegrityError from the ledger write propagates instead of triggering account-number retries."""
+    user = User.objects.create_user(username='k@example.com', email='k@example.com')
+
+    with (
+        patch.object(Transaction.objects, 'create', side_effect=IntegrityError('ledger write failed')),
+        pytest.raises(IntegrityError),
+    ):
+        create_account_for_user(user)
+
+    assert not Account.objects.filter(user=user).exists()
 
 
 def test_calculate_fee_uses_percentage_when_above_minimum():
