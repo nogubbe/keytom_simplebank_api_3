@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'ninja',
     'ninja_jwt',
     'simplebank.apps.users',
+    'simplebank.apps.accounts',
 ]
 
 MIDDLEWARE = [
