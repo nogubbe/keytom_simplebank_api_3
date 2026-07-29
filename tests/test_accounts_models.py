@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 
 from simplebank.apps.accounts.enums import TransactionType
 from simplebank.apps.accounts.models import Account, Transaction, Transfer
@@ -64,3 +65,39 @@ def test_transfer_total_debited_is_amount_plus_fee():
     )
 
     assert transfer.total_debited == Decimal('105.00')
+
+
+@pytest.mark.django_db
+def test_account_balance_cannot_go_negative_at_the_database_level():
+    """The account_balance_non_negative constraint rejects a negative balance even outside execute_transfer."""
+    user = User.objects.create_user(username='o@example.com', email='o@example.com')
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Account.objects.create(user=user, account_number='1234567896', balance=Decimal('-0.01'))
+
+
+@pytest.mark.django_db
+def test_transfer_amount_must_be_positive_at_the_database_level():
+    """The transfer_amount_positive constraint rejects a zero or negative transfer amount."""
+    sender_user = User.objects.create_user(username='p@example.com', email='p@example.com')
+    receiver_user = User.objects.create_user(username='q@example.com', email='q@example.com')
+    sender = Account.objects.create(user=sender_user, account_number='1234567897', balance=Decimal('10000.00'))
+    receiver = Account.objects.create(user=receiver_user, account_number='1234567898', balance=Decimal('10000.00'))
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Transfer.objects.create(
+            sender_account=sender,
+            receiver_account=receiver,
+            amount=Decimal('0.00'),
+            fee=Decimal('5.00'),
+        )
+
+
+@pytest.mark.django_db
+def test_transaction_amount_must_be_positive_at_the_database_level():
+    """The transaction_amount_positive constraint rejects a zero or negative ledger amount."""
+    user = User.objects.create_user(username='r@example.com', email='r@example.com')
+    account = Account.objects.create(user=user, account_number='1234567899', balance=Decimal('10000.00'))
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Transaction.objects.create(account=account, type=TransactionType.DEBIT, amount=Decimal('-1.00'))
