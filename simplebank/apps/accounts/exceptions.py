@@ -15,3 +15,7 @@ class InsufficientFundsError(Exception):
 
 class SameAccountTransferError(Exception):
     """Raised when a transfer's sender and receiver account are the same."""
+
+
+class InvalidTransferAmountError(Exception):
+    """Raised when a transfer amount is zero, negative, or has more than 2 decimal places."""
