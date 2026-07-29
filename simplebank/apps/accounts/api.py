@@ -12,10 +12,10 @@ from ninja.errors import HttpError
 from ninja.pagination import PageNumberPagination, paginate
 from ninja_jwt.authentication import JWTAuth
 
-from .exceptions import AccountNotFoundError
+from .exceptions import AccountNotFoundError, InsufficientFundsError, SameAccountTransferError
 from .models import Account, Transaction
-from .schemas import BalanceOutScheme, ErrorOutScheme, TransactionOutScheme
-from .services import get_account, list_transactions
+from .schemas import BalanceOutScheme, ErrorOutScheme, TransactionOutScheme, TransferInScheme, TransferOutScheme
+from .services import execute_transfer, get_account, list_transactions
 
 router = Router(tags=['accounts'], auth=JWTAuth())
 
@@ -51,3 +51,30 @@ def transactions(
     except AccountNotFoundError as exc:
         raise HttpError(HTTPStatus.NOT_FOUND, 'Account not found') from exc
     return list_transactions(user, date_from, date_to)
+
+
+@router.post(
+    '/transfer',
+    response={
+        HTTPStatus.CREATED: TransferOutScheme,
+        HTTPStatus.NOT_FOUND: ErrorOutScheme,
+        HTTPStatus.UNPROCESSABLE_ENTITY: ErrorOutScheme,
+    },
+)
+def transfer(request: HttpRequest, payload: TransferInScheme) -> tuple[HTTPStatus, dict[str, str] | TransferOutScheme]:
+    """Transfer money from the authenticated user's account to another account."""
+    try:
+        sender = get_account(_current_user(request))
+        result = execute_transfer(sender, payload.account_number, payload.amount)
+    except AccountNotFoundError:
+        return HTTPStatus.NOT_FOUND, {'detail': 'Account not found'}
+    except SameAccountTransferError:
+        return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Cannot transfer to your own account'}
+    except InsufficientFundsError:
+        return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Insufficient funds'}
+    return HTTPStatus.CREATED, TransferOutScheme(
+        account_number=result.receiver_account.account_number,
+        amount=result.amount,
+        fee=result.fee,
+        total_debited=result.total_debited,
+    )
