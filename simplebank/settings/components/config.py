@@ -11,6 +11,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 class Settings(BaseSettings):
+    """Environment-backed application settings."""
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / '.env',
         env_file_encoding='utf-8',
@@ -27,6 +29,7 @@ class Settings(BaseSettings):
     @field_validator('allowed_hosts', mode='before')
     @classmethod
     def split_allowed_hosts(cls, value: object) -> object:
+        """Allow ALLOWED_HOSTS to be a comma-separated string in the environment."""
         if isinstance(value, str):
             return [host.strip() for host in value.split(',') if host.strip()]
         return value
@@ -34,4 +37,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    """Return the process-wide cached Settings instance."""
+    return Settings()

@@ -1,0 +1,1 @@
+"""SimpleBank Django project package."""

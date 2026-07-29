@@ -1,9 +1,13 @@
+"""Shared pytest fixtures for the test suite."""
+
+from collections.abc import Iterator
+
 import pytest
 from testcontainers.community.postgres import PostgresContainer
 
 
 @pytest.fixture(scope='session')
-def django_db_modify_db_settings():
+def django_db_modify_db_settings() -> Iterator[None]:
     """Point the test DB at a throwaway Postgres container instead of DATABASE_URL.
 
     Uses real Postgres (not sqlite) so locking/atomicity behaviour in tests
