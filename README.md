@@ -4,7 +4,7 @@ Package/env management via [uv](https://docs.astral.sh/uv/) v=0.9.7 (Homebrew 20
 
 ## Quickstart
 
-Fastest way to run locally — via Docker (recommended)
+### Option A — everything in Docker (recommended)
 
 One script spins up Postgres + the web container, applies migrations, and creates a local superuser:
 
@@ -16,16 +16,25 @@ Once it's up:
 - API: http://localhost:8000/api/health
 - Admin: http://localhost:8000/admin/
 
-Reset everything and start fresh (drops the DB data):
+Tear down (removes containers + volumes):
 
 ```bash
-scripts/docker-up.sh --reset
+scripts/docker-up.sh --down
 ```
 
-Stop/tear down:
+### Option B — Postgres in Docker, server in your terminal
+
+For day-to-day development: only Postgres runs in Docker, so you get hot-reload and a normal `uv run manage.py ...` workflow. The script starts the DB, applies migrations, and creates a local superuser:
 
 ```bash
-docker compose rm -v
+scripts/docker-up-dev.sh
+uv run manage.py runserver
+```
+
+Tear down (removes the DB container + volume):
+
+```bash
+scripts/docker-up-dev.sh --down
 ```
 
 ## Requirements
@@ -99,7 +108,7 @@ To run the project (or part of it) locally:
 
 ```bash
 cp envs/local.env .env
-cp docker/docker-compose.local.yml docker-compose.yml
+cp docker/docker-compose.local_full.yml docker-compose.yml
 
 docker compose up --build
 ```
@@ -111,7 +120,8 @@ docker compose rm -v
 ```
 
 `scripts/docker-up.sh` wraps this (plus migrations and a seeded local
-superuser) for day-to-day use.
+superuser) for day-to-day use; `scripts/docker-up-dev.sh` does the same but
+only for the `db` service, for running `manage.py runserver` locally.
 
 ### Other environments
 
