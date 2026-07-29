@@ -15,6 +15,7 @@ scripts/docker-up.sh
 Once it's up:
 - API: http://localhost:8000/api/health
 - Admin: http://localhost:8000/admin/
+- API docs (Swagger UI, dev only — see [Settings](#settings)): http://localhost:8000/api/docs
 
 Tear down (removes containers + volumes):
 
@@ -92,6 +93,10 @@ Settings are splited under `simplebank/settings/`:
 - `components/security.py` = secure-cookie/HSTS/SSL-redirect settings, used in production.
 - `environments/local.py` = local development (used by `manage.py`, `DEBUG=True` by default).
 - `environments/prod.py` = production (used by `wsgi.py`/`asgi.py`); requires `ALLOWED_HOSTS`.
+
+Django Ninja's Swagger UI is wired to `DEBUG`: it's served at `/api/docs` when
+`DEBUG=True` (local dev) and disabled entirely (`docs_url=None`) when
+`DEBUG=False` (production).
 
 Configuration is read from environment variables (or a local `.env` file, see
 `envs/local.env` and `envs/production.env`): `SECRET_KEY`, `DEBUG`,
