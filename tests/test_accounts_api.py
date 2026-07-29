@@ -2,14 +2,18 @@
 
 from datetime import timedelta
 from decimal import Decimal
+from http import HTTPStatus
 
 import pytest
 from django.contrib.auth.models import User
+from django.test import RequestFactory
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
+from simplebank.apps.accounts.api import transfer
 from simplebank.apps.accounts.enums import TransactionType
 from simplebank.apps.accounts.models import Transaction
+from simplebank.apps.accounts.schemas import TransferInScheme
 from simplebank.apps.users.services import register_user
 
 
@@ -264,3 +268,151 @@ def test_transactions_are_paginated(client, registered_user, auth_headers):
     page_two_items = page_two.json()['items']
     assert len(page_two_items) == 2
     assert {item['id'] for item in body['items']}.isdisjoint({item['id'] for item in page_two_items})
+
+
+@pytest.fixture
+def other_registered_user(db):
+    """Register a second user to act as a transfer receiver."""
+    return register_user('l@example.com', 'a-strong-password-123')
+
+
+def test_transfer_requires_authentication(client):
+    """The transfer endpoint returns 401 without a token."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': '9999999999', 'amount': '10.00'},
+        content_type='application/json',
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_transfer_success(client, registered_user, other_registered_user, auth_headers):
+    """A valid transfer returns 201 with the amount, fee and total debited, and moves the money."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': '1000.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body['account_number'] == other_registered_user.account.account_number
+    assert Decimal(body['amount']) == Decimal('1000.00')
+    assert Decimal(body['fee']) == Decimal('25.00')
+    assert Decimal(body['total_debited']) == Decimal('1025.00')
+
+    balance_response = client.get('/api/accounts/balance', headers=auth_headers)
+    assert Decimal(balance_response.json()['balance']) == Decimal('8975.00')
+
+    other_refresh: RefreshToken = RefreshToken.for_user(other_registered_user)  # type: ignore[assignment,misc]
+    other_headers = {'Authorization': f'Bearer {other_refresh.access_token}'}
+    receiver_transactions = client.get('/api/accounts/transactions', headers=other_headers)
+    receiver_items = receiver_transactions.json()['items']
+    assert any(Decimal(item['amount']) == Decimal('1000.00') and item['type'] == 'credit' for item in receiver_items)
+
+
+@pytest.mark.django_db
+def test_transfer_to_unknown_account_returns_404(client, registered_user, auth_headers):
+    """Transferring to a non-existent account number returns 404."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': '9999999999', 'amount': '10.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_transfer_insufficient_funds_returns_422(client, registered_user, other_registered_user, auth_headers):
+    """Transferring more than the balance covers returns 422 with a fixed, generic detail message."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': '50000.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Insufficient funds'
+
+
+@pytest.mark.django_db
+def test_transfer_to_self_returns_422(client, registered_user, auth_headers):
+    """Transferring to your own account number returns 422 with a fixed, generic detail message."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': registered_user.account.account_number, 'amount': '10.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Cannot transfer to your own account'
+
+
+@pytest.mark.django_db
+def test_transfer_with_non_positive_amount_returns_422(client, registered_user, other_registered_user, auth_headers):
+    """A zero or negative amount is rejected by schema validation before any business logic runs."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': '0.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_transfer_records_a_debit_of_the_total_in_the_sender_history(
+    client,
+    registered_user,
+    other_registered_user,
+    auth_headers,
+):
+    """The sender's own history gains a debit entry for the amount plus the fee."""
+    client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': '1000.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    items = client.get('/api/accounts/transactions', headers=auth_headers).json()['items']
+    debits = [item for item in items if item['type'] == TransactionType.DEBIT]
+    assert [Decimal(item['amount']) for item in debits] == [Decimal('1025.00')]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('amount', ['10.001', '99999999999999.00', '-10.00'])
+def test_transfer_with_invalid_amount_returns_422(client, registered_user, other_registered_user, auth_headers, amount):
+    """Over-precise, oversized and negative amounts are all rejected with 422."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': amount},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_transfer_rejects_an_invalid_amount_that_bypasses_schema_validation(registered_user, other_registered_user):
+    """An invalid amount reaching the service layer maps to 422 rather than a 500."""
+    request = RequestFactory().post('/api/accounts/transfer')
+    request.user = registered_user
+    payload = TransferInScheme.model_construct(
+        account_number=other_registered_user.account.account_number,
+        amount=Decimal('10.001'),
+    )
+
+    status, body = transfer(request, payload)
+
+    assert status == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert body == {'detail': 'Invalid transfer amount'}
