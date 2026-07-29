@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 
 from .enums import TransactionType
-from .exceptions import AccountNumberGenerationError
+from .exceptions import AccountNotFoundError, AccountNumberGenerationError
 from .models import Account, Transaction
 
 WELCOME_BONUS = Decimal('10000.00')
@@ -36,3 +36,11 @@ def create_account_for_user(user: User) -> Account:
             Transaction.objects.create(account=account, type=TransactionType.CREDIT, amount=WELCOME_BONUS)
             return account
     raise AccountNumberGenerationError
+
+
+def get_account(user: User) -> Account:
+    """Return the authenticated user's account, or raise AccountNotFoundError if they have none."""
+    try:
+        return Account.objects.get(user=user)
+    except Account.DoesNotExist as exc:
+        raise AccountNotFoundError from exc
