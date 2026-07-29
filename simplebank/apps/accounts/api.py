@@ -12,7 +12,12 @@ from ninja.errors import HttpError
 from ninja.pagination import PageNumberPagination, paginate
 from ninja_jwt.authentication import JWTAuth
 
-from .exceptions import AccountNotFoundError, InsufficientFundsError, SameAccountTransferError
+from .exceptions import (
+    AccountNotFoundError,
+    InsufficientFundsError,
+    InvalidTransferAmountError,
+    SameAccountTransferError,
+)
 from .models import Account, Transaction
 from .schemas import BalanceOutScheme, ErrorOutScheme, TransactionOutScheme, TransferInScheme, TransferOutScheme
 from .services import execute_transfer, get_account, list_transactions
@@ -65,15 +70,20 @@ def transfer(request: HttpRequest, payload: TransferInScheme) -> tuple[HTTPStatu
     """Transfer money from the authenticated user's account to another account."""
     try:
         sender = get_account(_current_user(request))
+    except AccountNotFoundError:
+        return HTTPStatus.NOT_FOUND, {'detail': 'Your account was not found'}
+    try:
         result = execute_transfer(sender, payload.account_number, payload.amount)
     except AccountNotFoundError:
-        return HTTPStatus.NOT_FOUND, {'detail': 'Account not found'}
+        return HTTPStatus.NOT_FOUND, {'detail': 'Recipient account not found'}
     except SameAccountTransferError:
         return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Cannot transfer to your own account'}
     except InsufficientFundsError:
         return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Insufficient funds'}
+    except InvalidTransferAmountError:
+        return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Invalid transfer amount'}
     return HTTPStatus.CREATED, TransferOutScheme(
-        account_number=result.receiver_account.account_number,
+        account_number=payload.account_number,
         amount=result.amount,
         fee=result.fee,
         total_debited=result.total_debited,

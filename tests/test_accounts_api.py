@@ -2,14 +2,18 @@
 
 from datetime import timedelta
 from decimal import Decimal
+from http import HTTPStatus
 
 import pytest
 from django.contrib.auth.models import User
+from django.test import RequestFactory
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
+from simplebank.apps.accounts.api import transfer
 from simplebank.apps.accounts.enums import TransactionType
 from simplebank.apps.accounts.models import Transaction
+from simplebank.apps.accounts.schemas import TransferInScheme
 from simplebank.apps.users.services import register_user
 
 
@@ -362,3 +366,53 @@ def test_transfer_with_non_positive_amount_returns_422(client, registered_user, 
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_transfer_records_a_debit_of_the_total_in_the_sender_history(
+    client,
+    registered_user,
+    other_registered_user,
+    auth_headers,
+):
+    """The sender's own history gains a debit entry for the amount plus the fee."""
+    client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': '1000.00'},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    items = client.get('/api/accounts/transactions', headers=auth_headers).json()['items']
+    debits = [item for item in items if item['type'] == TransactionType.DEBIT]
+    assert [Decimal(item['amount']) for item in debits] == [Decimal('1025.00')]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('amount', ['10.001', '99999999999999.00', '-10.00'])
+def test_transfer_with_invalid_amount_returns_422(client, registered_user, other_registered_user, auth_headers, amount):
+    """Over-precise, oversized and negative amounts are all rejected with 422."""
+    response = client.post(
+        '/api/accounts/transfer',
+        {'account_number': other_registered_user.account.account_number, 'amount': amount},
+        content_type='application/json',
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_transfer_rejects_an_invalid_amount_that_bypasses_schema_validation(registered_user, other_registered_user):
+    """An invalid amount reaching the service layer maps to 422 rather than a 500."""
+    request = RequestFactory().post('/api/accounts/transfer')
+    request.user = registered_user
+    payload = TransferInScheme.model_construct(
+        account_number=other_registered_user.account.account_number,
+        amount=Decimal('10.001'),
+    )
+
+    status, body = transfer(request, payload)
+
+    assert status == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert body == {'detail': 'Invalid transfer amount'}
