@@ -382,13 +382,13 @@ def test_transfer_with_non_positive_amount_returns_422(client, registered_user, 
 
 
 @pytest.mark.django_db
-def test_transfer_records_a_debit_of_the_total_in_the_sender_history(
+def test_transfer_records_separate_debits_for_the_amount_and_the_fee(
     client,
     registered_user,
     other_registered_user,
     auth_headers,
 ):
-    """The sender's own history gains a debit entry for the amount plus the fee."""
+    """The sender's own history gains two debit entries: one for the amount, one for the fee."""
     client.post(
         '/api/accounts/transfer',
         {'account_number': other_registered_user.account.account_number, 'amount': '1000.00'},
@@ -398,7 +398,7 @@ def test_transfer_records_a_debit_of_the_total_in_the_sender_history(
 
     items = client.get('/api/accounts/transactions', headers=auth_headers).json()['items']
     debits = [item for item in items if item['type'] == TransactionType.DEBIT]
-    assert [Decimal(item['amount']) for item in debits] == [Decimal('1025.00')]
+    assert sorted(Decimal(item['amount']) for item in debits) == [Decimal('25.00'), Decimal('1000.00')]
 
 
 @pytest.mark.django_db

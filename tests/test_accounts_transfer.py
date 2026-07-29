@@ -72,15 +72,15 @@ def test_execute_transfer_returns_transfer_with_amount_and_fee(sender, receiver)
 
 @pytest.mark.django_db
 def test_execute_transfer_records_debit_and_credit_transactions(sender, receiver):
-    """Exactly two ledger entries are written, both linked to the transfer."""
+    """Three ledger entries are written: the sender's amount and fee debits, and the receiver's credit."""
     transfer = execute_transfer(sender, receiver.account_number, Decimal('600.00'))
 
-    assert Transaction.objects.count() == 2
-    debit = Transaction.objects.get(account=sender)
+    assert Transaction.objects.count() == 3
+    sender_debits = Transaction.objects.filter(account=sender).order_by('amount')
     credit = Transaction.objects.get(account=receiver)
-    assert debit.type == TransactionType.DEBIT
-    assert debit.amount == Decimal('615.00')
-    assert debit.transfer_id == transfer.pk
+    assert [d.amount for d in sender_debits] == [Decimal('15.00'), Decimal('600.00')]
+    assert all(d.type == TransactionType.DEBIT for d in sender_debits)
+    assert all(d.transfer_id == transfer.pk for d in sender_debits)
     assert credit.type == TransactionType.CREDIT
     assert credit.amount == Decimal('600.00')
     assert credit.transfer_id == transfer.pk
@@ -187,8 +187,8 @@ def test_execute_transfer_applies_the_minimum_fee_end_to_end(sender, receiver):
     assert transfer.fee == Decimal('5.00')
     assert sender.balance == Decimal('895.00')
     assert receiver.balance == Decimal('100.00')
-    debit = Transaction.objects.get(account=sender)
-    assert debit.amount == Decimal('105.00')
+    sender_debits = Transaction.objects.filter(account=sender)
+    assert sum((d.amount for d in sender_debits), Decimal('0.00')) == Decimal('105.00')
 
 
 @pytest.mark.django_db
@@ -275,7 +275,7 @@ def test_concurrent_transfers_cannot_overdraw_the_sender():
     sender_account.refresh_from_db()
     assert sender_account.balance == Decimal('385.00')
     assert Transfer.objects.count() == 1
-    assert Transaction.objects.filter(transfer__isnull=False).count() == 2
+    assert Transaction.objects.filter(transfer__isnull=False).count() == 3
 
 
 @pytest.mark.django_db

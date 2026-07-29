@@ -129,7 +129,13 @@ def execute_transfer(sender: Account, receiver_account_number: str, amount: Deci
         Transaction.objects.create(
             account=locked_sender,
             type=TransactionType.DEBIT,
-            amount=total_debit,
+            amount=amount,
+            transfer=transfer,
+        )
+        Transaction.objects.create(
+            account=locked_sender,
+            type=TransactionType.DEBIT,
+            amount=fee,
             transfer=transfer,
         )
         Transaction.objects.create(
