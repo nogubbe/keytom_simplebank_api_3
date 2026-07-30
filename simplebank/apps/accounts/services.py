@@ -17,6 +17,7 @@ from .exceptions import (
     InsufficientFundsError,
     InvalidTransferAmountError,
     SameAccountTransferError,
+    SenderAccountNotFoundError,
 )
 from .models import Account, Transaction, Transfer
 
@@ -24,6 +25,8 @@ WELCOME_BONUS = Decimal('10000.00')
 MAX_ACCOUNT_NUMBER_ATTEMPTS = 5
 MIN_TRANSFER_FEE = Decimal('5.00')
 TRANSFER_FEE_RATE = Decimal('0.025')
+# Matches Account.balance / Transfer.amount's max_digits=12, decimal_places=2.
+MAX_TRANSFER_AMOUNT = Decimal('9999999999.99')
 
 
 def _generate_account_number() -> str:
@@ -32,20 +35,26 @@ def _generate_account_number() -> str:
 
 
 def create_account_for_user(user: User) -> Account:
-    """Create a bank account for a user, crediting the welcome bonus."""
+    """Create a bank account for a user, crediting the welcome bonus in the same transaction."""
+    with transaction.atomic():
+        account = _create_account_with_unique_number(user)
+        Transaction.objects.create(account=account, type=TransactionType.CREDIT, amount=WELCOME_BONUS)
+        return account
+
+
+def _create_account_with_unique_number(user: User) -> Account:
+    """Insert the user's account, retrying on generated account-number collisions."""
     for _ in range(MAX_ACCOUNT_NUMBER_ATTEMPTS):
         try:
+            # Each attempt gets its own savepoint so a collision can be rolled back and retried.
             with transaction.atomic():
-                account = Account.objects.create(
+                return Account.objects.create(
                     user=user,
                     account_number=_generate_account_number(),
                     balance=WELCOME_BONUS,
                 )
         except IntegrityError:
             continue
-        else:
-            Transaction.objects.create(account=account, type=TransactionType.CREDIT, amount=WELCOME_BONUS)
-            return account
     raise AccountNumberGenerationError
 
 
@@ -57,9 +66,9 @@ def get_account(user: User) -> Account:
         raise AccountNotFoundError from exc
 
 
-def list_transactions(user: User, date_from: date | None, date_to: date | None) -> QuerySet[Transaction]:
-    """Return the authenticated user's transactions, optionally filtered by date range."""
-    transactions = Transaction.objects.filter(account__user=user).order_by('-timestamp', '-id')
+def list_transactions(account: Account, date_from: date | None, date_to: date | None) -> QuerySet[Transaction]:
+    """Return an account's transactions, optionally filtered by date range."""
+    transactions = Transaction.objects.filter(account=account).order_by('-timestamp', '-id')
     if date_from is not None:
         transactions = transactions.filter(timestamp__gte=_start_of_day(date_from))
     if date_to is not None:
@@ -78,13 +87,30 @@ def calculate_fee(amount: Decimal) -> Decimal:
     return max(percentage_fee, MIN_TRANSFER_FEE)
 
 
+# Both rows are locked by a single SELECT ... FOR UPDATE ... ORDER BY statement rather than
+# two separate lock acquisitions. Both concurrent sessions execute the same query plan over
+# the same two rows, so both traverse them in the same order regardless of which account each
+# session calls "sender" — that shared traversal order is what rules out a lock-ordering cycle
+# between opposing transfers (A->B and B->A). The ORDER BY keeps that order aligned with pk
+# instead of leaving it to whatever the current plan happens to produce.
+def _lock_transfer_accounts(sender_pk: int, receiver_pk: int) -> tuple[Account, Account]:
+    """Lock and return the sender and receiver accounts in a deadlock-safe pk order."""
+    locked = Account.objects.select_for_update().filter(pk__in=[sender_pk, receiver_pk]).order_by('pk')
+    by_pk = {account.pk: account for account in locked}
+    if sender_pk not in by_pk:
+        raise SenderAccountNotFoundError
+    if receiver_pk not in by_pk:
+        raise AccountNotFoundError
+    return by_pk[sender_pk], by_pk[receiver_pk]
+
+
 def execute_transfer(sender: Account, receiver_account_number: str, amount: Decimal) -> Transfer:
     """Transfer money from sender to the account with receiver_account_number, applying the fee.
 
     The passed-in `sender` instance is not updated in place — its `.balance` still holds the
     pre-transfer value after this returns. Re-fetch the account if you need the new balance.
     """
-    if amount <= 0 or amount != amount.quantize(Decimal('0.01')):
+    if amount <= 0 or amount > MAX_TRANSFER_AMOUNT or amount != amount.quantize(Decimal('0.01')):
         raise InvalidTransferAmountError
     try:
         receiver = Account.objects.get(account_number=receiver_account_number)
@@ -94,18 +120,7 @@ def execute_transfer(sender: Account, receiver_account_number: str, amount: Deci
         raise SameAccountTransferError
 
     with transaction.atomic():
-        # Both rows are locked by a single SELECT ... FOR UPDATE ... ORDER BY statement rather than
-        # two separate lock acquisitions. Both concurrent sessions execute the same query plan over
-        # the same two rows, so both traverse them in the same order regardless of which account each
-        # session calls "sender" — that shared traversal order is what rules out a lock-ordering cycle
-        # between opposing transfers (A->B and B->A). The ORDER BY keeps that order aligned with pk
-        # instead of leaving it to whatever the current plan happens to produce.
-        locked = Account.objects.select_for_update().filter(pk__in=[sender.pk, receiver.pk]).order_by('pk')
-        by_pk = {account.pk: account for account in locked}
-        try:
-            locked_sender, locked_receiver = by_pk[sender.pk], by_pk[receiver.pk]
-        except KeyError as exc:
-            raise AccountNotFoundError from exc
+        locked_sender, locked_receiver = _lock_transfer_accounts(sender.pk, receiver.pk)
         fee = calculate_fee(amount)
         total_debit = amount + fee
         if locked_sender.balance < total_debit:
@@ -120,7 +135,13 @@ def execute_transfer(sender: Account, receiver_account_number: str, amount: Deci
         Transaction.objects.create(
             account=locked_sender,
             type=TransactionType.DEBIT,
-            amount=total_debit,
+            amount=amount,
+            transfer=transfer,
+        )
+        Transaction.objects.create(
+            account=locked_sender,
+            type=TransactionType.DEBIT,
+            amount=fee,
             transfer=transfer,
         )
         Transaction.objects.create(

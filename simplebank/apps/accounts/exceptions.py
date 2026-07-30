@@ -9,6 +9,10 @@ class AccountNotFoundError(Exception):
     """Raised when a referenced account number does not exist."""
 
 
+class SenderAccountNotFoundError(AccountNotFoundError):
+    """Raised when the sender's own account row disappears between validation and row locking."""
+
+
 class InsufficientFundsError(Exception):
     """Raised when an account's balance cannot cover a transfer plus its fee."""
 
@@ -18,4 +22,4 @@ class SameAccountTransferError(Exception):
 
 
 class InvalidTransferAmountError(Exception):
-    """Raised when a transfer amount is zero, negative, or has more than 2 decimal places."""
+    """Raised when a transfer amount is zero, negative, too large, or has more than 2 decimal places."""

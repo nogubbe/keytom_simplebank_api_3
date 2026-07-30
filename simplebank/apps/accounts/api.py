@@ -17,12 +17,23 @@ from .exceptions import (
     InsufficientFundsError,
     InvalidTransferAmountError,
     SameAccountTransferError,
+    SenderAccountNotFoundError,
 )
 from .models import Account, Transaction
 from .schemas import BalanceOutScheme, ErrorOutScheme, TransactionOutScheme, TransferInScheme, TransferOutScheme
 from .services import execute_transfer, get_account, list_transactions
 
 router = Router(tags=['accounts'], auth=JWTAuth())
+
+# Order matters: looked up by isinstance, most specific exception type first, so a subclass
+# (SenderAccountNotFoundError) is never shadowed by its own parent (AccountNotFoundError).
+_TRANSFER_ERROR_RESPONSES: dict[type[Exception], tuple[HTTPStatus, str]] = {
+    SenderAccountNotFoundError: (HTTPStatus.NOT_FOUND, 'Your account was not found'),
+    AccountNotFoundError: (HTTPStatus.NOT_FOUND, 'Recipient account not found'),
+    SameAccountTransferError: (HTTPStatus.UNPROCESSABLE_ENTITY, 'Cannot transfer to your own account'),
+    InsufficientFundsError: (HTTPStatus.UNPROCESSABLE_ENTITY, 'Insufficient funds'),
+    InvalidTransferAmountError: (HTTPStatus.UNPROCESSABLE_ENTITY, 'Invalid transfer amount'),
+}
 
 
 def _current_user(request: HttpRequest) -> User:
@@ -50,12 +61,11 @@ def transactions(
     """Return the authenticated user's transaction history, newest first."""
     if date_from is not None and date_to is not None and date_from > date_to:
         raise HttpError(HTTPStatus.UNPROCESSABLE_ENTITY, '`from` date must not be after `to` date')
-    user = _current_user(request)
     try:
-        get_account(user)
+        account = get_account(_current_user(request))
     except AccountNotFoundError as exc:
         raise HttpError(HTTPStatus.NOT_FOUND, 'Account not found') from exc
-    return list_transactions(user, date_from, date_to)
+    return list_transactions(account, date_from, date_to)
 
 
 @router.post(
@@ -74,14 +84,11 @@ def transfer(request: HttpRequest, payload: TransferInScheme) -> tuple[HTTPStatu
         return HTTPStatus.NOT_FOUND, {'detail': 'Your account was not found'}
     try:
         result = execute_transfer(sender, payload.account_number, payload.amount)
-    except AccountNotFoundError:
-        return HTTPStatus.NOT_FOUND, {'detail': 'Recipient account not found'}
-    except SameAccountTransferError:
-        return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Cannot transfer to your own account'}
-    except InsufficientFundsError:
-        return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Insufficient funds'}
-    except InvalidTransferAmountError:
-        return HTTPStatus.UNPROCESSABLE_ENTITY, {'detail': 'Invalid transfer amount'}
+    except tuple(_TRANSFER_ERROR_RESPONSES) as exc:
+        status, detail = next(
+            response for exc_type, response in _TRANSFER_ERROR_RESPONSES.items() if isinstance(exc, exc_type)
+        )
+        return status, {'detail': detail}
     return HTTPStatus.CREATED, TransferOutScheme(
         account_number=payload.account_number,
         amount=result.amount,

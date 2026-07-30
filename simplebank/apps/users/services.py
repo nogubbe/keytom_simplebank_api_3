@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 
 from simplebank.apps.accounts.services import create_account_for_user
 
-from .exceptions import EmailAlreadyRegisteredError
+from .exceptions import EmailAlreadyRegisteredError, WeakPasswordError
 
 
 def register_user(email: str, password: str) -> User:
@@ -20,7 +20,7 @@ def register_user(email: str, password: str) -> User:
     try:
         validate_password(password, user)
     except ValidationError as exc:
-        raise ValueError('; '.join(exc.messages)) from exc
+        raise WeakPasswordError(exc.messages) from exc
 
     with transaction.atomic():
         user.set_password(password)
